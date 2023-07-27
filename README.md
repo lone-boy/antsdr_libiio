@@ -1,9 +1,10 @@
 # Antsdr libiio interface
 This Repository is used to show how to config device and get stream by libiio.
+You can use a centimeter.
 
 ## Hardware 
 1. Microphase antsdr E310
-2. Signal generator
+2. Signal generator(antsdr TX1)
 
 ## Dependent library
 1. libiio
