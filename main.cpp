@@ -38,7 +38,7 @@ int main() {
 
     device.set_tx_samprate(3e6);
     device.set_tx_freq(1e9);
-    if(device.set_tx_attenuation(60))
+    if(device.set_tx_attenuation(50))
 
     device.start_tx(1 << 0);
 
