@@ -57,9 +57,9 @@ int main() {
             plt::figure(1);
             plt::clf();
             plt::plot(x_data,recv1_i,"b");
-//            plt::plot(x_data,recv1_q,"g");
+            plt::plot(x_data,recv1_q,"g");
             plt::plot(x_data,recv2_i,"r");
-//            plt::plot(x_data,recv2_q,"y");
+            plt::plot(x_data,recv2_q,"y");
 
             plt::draw();
             plt::pause(0.001);

@@ -3,6 +3,11 @@ project(antsdr_libiio)
 
 set(CMAKE_CXX_STANDARD 17)
 
+find_library(libiio_LIBRARY iio)
+if(libiio_FOUND)
+    message(STATUS "Find libiio library")
+endif ()
+
 find_package(Python3 COMPONENTS Development NumPy)
 if(Python3_FOUND)
     message(STATUS "Python3 found: ${Python3_VERSION}")
