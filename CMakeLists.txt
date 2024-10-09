@@ -16,6 +16,11 @@ else()
     message(FATAL_ERROR "Python3 not found")
 endif()
 
-add_executable(antsdr_libiio main.cpp antsdrDevice.h antsdrDevice.cpp)
+add_executable(antsdr_libiio main.cpp antsdrDevice.h antsdrDevice.cpp
+        log.cpp
+        zcProcess.h
+        math_utils.h
+        zcProcess.cpp
+        math_utils.cpp)
 
-target_link_libraries(antsdr_libiio iio pthread Python3::Python Python3::NumPy)
+target_link_libraries(antsdr_libiio iio ad9361 pthread fftw3f Python3::Python Python3::NumPy)

@@ -7,14 +7,9 @@
 
 #include "iio.h"
 #include "thread"
+#include "common.h"
 
-typedef struct
-{
-    void *user;
-    int16_t *data;
-    int channels;
-    int length;
-} sdr_transfer;
+
 
 typedef void(*RXdataCallback)(sdr_transfer *transfer);
 
@@ -23,7 +18,7 @@ public:
     antsdrDevice();
     ~antsdrDevice();
 
-    int open();
+    int open(bool is_ref_pll = false);
     bool set_rx_freq(double freq);
     bool set_tx_freq(double freq);
     double get_rx_freq();
@@ -34,6 +29,8 @@ public:
 
     void stop_rx();
     void stop_tx();
+
+    bool get_10M_is_lock();
 
     /**
      * ad9361A
@@ -51,6 +48,8 @@ private:
     struct iio_device  *antsdr_rx_;
     struct iio_device  *antsdr_tx_;
     struct iio_device  *phy_dev_;
+    struct iio_device  *phy_dev_pll_;
+    struct iio_channel *pll_in_ch_;
     struct iio_buffer  *rx_buf_;
     struct iio_buffer  *tx_buf_;
     struct iio_channel *phy_rx_chn0_,*phy_rx_chn1_;
@@ -71,6 +70,7 @@ private:
     RXdataCallback rx_handler_;
     std::thread *rx_thread_;
     char tmpstr_[64];
+    bool is_ref_pll_;
 
 
 private:

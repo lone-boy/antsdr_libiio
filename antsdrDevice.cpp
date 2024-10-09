@@ -6,25 +6,8 @@
 #include "functional"
 #include "math.h"
 #include "cstring"
-
-// Function to generate a cosine signal
-std::vector<int16_t> generateCosineSignal(double frequency, double sampleRate, double durationInSeconds,double phaseoffset) {
-    std::vector<int16_t> signal;
-    double angularFrequency = 2 * M_PI * frequency;
-    double maxAmplitude = 32767.0; // Maximum positive value for int16_t
-
-    // Calculate the number of samples needed for the desired duration
-    int numSamples = static_cast<int>(durationInSeconds * sampleRate);
-
-    for (int i = 0; i < numSamples; i++) {
-        double time = static_cast<double>(i) / sampleRate;
-        double sample = cos(angularFrequency * time + phaseoffset);
-        int16_t scaledSample = static_cast<int16_t>(round(sample * maxAmplitude));
-        signal.push_back(scaledSample);
-    }
-
-    return signal;
-}
+#include "readComplexFile.h"
+#include "ad9361.h"
 
 
 antsdrDevice::antsdrDevice()
@@ -63,11 +46,13 @@ void antsdrDevice::disable_chan(iio_channel **chan) {
     *chan = NULL;
 }
 
-int antsdrDevice::open() {
+int antsdrDevice::open(bool is_ref_pll) {
     if(is_Inited_)
         return 0;
 
-    antsdr_ctx_ = iio_create_context_from_uri("ip:192.168.1.10");
+    is_ref_pll_ = is_ref_pll;
+
+    antsdr_ctx_ = iio_create_context_from_uri("ip:192.168.10.122");
     if(antsdr_ctx_ == NULL){
         fprintf(stderr,"cannot find device.\n");
         return -1;
@@ -78,23 +63,38 @@ int antsdrDevice::open() {
         fprintf(stderr,"cannot find ad9361 device.\n");
     }
 
+    if(is_ref_pll_){
+        phy_dev_pll_ = iio_context_find_device(antsdr_ctx_,"ref-pll");
+    }
+    else{
+        phy_dev_pll_ = iio_context_find_device(antsdr_ctx_,"ad5660mp");
+    }
+    if(phy_dev_pll_ ==  NULL)
+        fprintf(stderr,"cannot find PLL device.\n");
+
+    if(phy_dev_pll_)
+        pll_in_ch_ = iio_device_find_channel(phy_dev_pll_,"voltage0", false);
+    if(pll_in_ch_ == NULL){
+        fprintf(stderr,"cannot findpll in.\n");
+    }
+
     phy_rx_chn0_ = iio_device_find_channel(phy_dev_,"voltage0", false);
     if(phy_rx_chn0_ == NULL){
         fprintf(stderr,"cannot find ad9361 one rx ch0.\n");
         return -1;
     }
-    phy_rx_chn1_ = iio_device_find_channel(phy_dev_,"voltage1", false);
-    if(phy_rx_chn1_ == NULL){
-        fprintf(stderr,"cannot find ad9361 one rx ch1.\n");
-        return -1;
-    }
+//    phy_rx_chn1_ = iio_device_find_channel(phy_dev_,"voltage1", false);
+//    if(phy_rx_chn1_ == NULL){
+//        fprintf(stderr,"cannot find ad9361 one rx ch1.\n");
+//        return -1;
+//    }
     phy_tx_chn0_ = iio_device_find_channel(phy_dev_,"voltage0", true);
     if(phy_tx_chn0_ == NULL){
         fprintf(stderr,"cannot find ad9361 one tx ch0.\n");
         return -1;
     }
     iio_channel_attr_write(phy_rx_chn0_, "gain_control_mode", "manual");
-    iio_channel_attr_write(phy_rx_chn1_, "gain_control_mode", "manual");
+//    iio_channel_attr_write(phy_rx_chn1_, "gain_control_mode", "manual");
 
     antsdr_rx_ = iio_context_find_device(antsdr_ctx_,"cf-ad9361-lpc");
     if(antsdr_rx_ == NULL){
@@ -131,6 +131,10 @@ double antsdrDevice::get_rx_freq() {
 bool antsdrDevice::set_rx_samprate(double fs) {
     if(not is_Inited_ or not phy_dev_)
         return false;
+    if(fs < 2.3e6){
+        return ad9361_set_bb_rate(phy_dev_,fs) == 0;
+    }
+
     int r = iio_channel_attr_write_longlong(phy_rx_chn0_,"sampling_frequency",(long long)fs);
     iio_channel_attr_write_longlong(phy_rx_chn0_, "rf_bandwidth", fs);
     return r==0;
@@ -233,6 +237,10 @@ bool antsdrDevice::set_tx_freq(double freq) {
 bool antsdrDevice::set_tx_samprate(double fs) {
     if(not is_Inited_ or not phy_tx_chn0_)
         return false;
+    if(fs < 2.3e6){
+        return ad9361_set_bb_rate(phy_dev_,fs) == 0;
+    }
+
     int r = iio_channel_attr_write_longlong(phy_tx_chn0_,"sampling_frequency",fs);;
     iio_channel_attr_write_longlong(phy_tx_chn0_, "rf_bandwidth", fs);
     return r==0;
@@ -264,18 +272,17 @@ bool antsdrDevice::start_tx(int channels) {
     }
     iio_device_set_kernel_buffers_count(antsdr_tx_,1);
 
-    double frequency = 20e3;
-    double samprate = 3e6;
-    double duration = 1.0 / frequency * 50;
-    std::vector<int16_t> wave_signal_i = generateCosineSignal(frequency,samprate,duration,0);
-    std::vector<int16_t> wave_signal_q = generateCosineSignal(frequency,samprate,duration,- M_PI / 2);
+    ReadComplexFile*file;
+    file = new ReadComplexFile("../antsdre200_zc1.cs16",2);
 
-    tx_buf_ = iio_device_create_buffer(antsdr_tx_,wave_signal_i.size()*channelsCnt, true);
+    CI16 *raw_data = file->get_buffer();
+    int samples = file->get_samples();
+
+    tx_buf_ = iio_device_create_buffer(antsdr_tx_,samples*channelsCnt, true);
     auto *tx_buffer = (int16_t*) iio_buffer_start(tx_buf_);
-    memset(tx_buffer,0,sizeof(int16_t )*wave_signal_i.size()*channelsCnt);
-    for(int i=0;i<wave_signal_i.size()*channelsCnt;i++){
-        tx_buffer[2*i] = wave_signal_i[i];
-        tx_buffer[2*i+1] = wave_signal_q[i];
+    for(int i=0;i<samples*channelsCnt;i++){
+        tx_buffer[2*i] = raw_data[i].real() << 10 -1;
+        tx_buffer[2*i+1] = raw_data[i].imag() << 10 -1;
     }
     ssize_t n_write = iio_buffer_push(tx_buf_);
     if(n_write < 0){
@@ -296,6 +303,25 @@ void antsdrDevice::stop_tx() {
         iio_buffer_destroy(tx_buf_);
         tx_buf_ = NULL;
     }
+}
+
+bool antsdrDevice::get_10M_is_lock() {
+    if(not is_Inited_ or not phy_dev_pll_)
+        return false;
+
+    long long is_lock = 0.0;
+    int r;
+    if(is_ref_pll_){
+        r = iio_channel_attr_read_longlong(pll_in_ch_,"scale",&is_lock);
+    }
+    else{
+        r = iio_channel_attr_read_longlong(pll_in_ch_,"dac_locked",&is_lock);
+    }
+    if(r == 0){
+        if(is_lock == 1)
+            return true;
+    }
+    return false;
 }
 
 
